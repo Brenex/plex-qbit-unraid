@@ -1,19 +1,19 @@
 # Standard library imports
-import os
-import time
-import sys
-import logging
-from logging.handlers import RotatingFileHandler
-import traceback
-import xml.etree.ElementTree as ET
-from enum import Enum
+import logging  # Logging infrastructure
+import os  # OS-level operations
+import sys  # System-specific parameters and functions
+import time  # Time-related functions
+import traceback  # Stack trace formatting
+from enum import Enum  # Enumeration support
+from logging.handlers import RotatingFileHandler  # Rotating log file handler
+import xml.etree.ElementTree as ET  # XML parsing and tree handling
 
 # Third-party imports
-import paramiko
-import requests
-from dotenv import load_dotenv
-from qbittorrentapi import Client as qbitClient
-from qbittorrentapi.exceptions import APIConnectionError
+import paramiko  # SSH connection library
+import requests  # HTTP requests library
+from dotenv import load_dotenv  # .env file loader
+from qbittorrentapi import Client as qbitClient  # qBittorrent API client
+from qbittorrentapi.exceptions import APIConnectionError  # qBittorrent API connection error
 
 # === Setup Logging ===
 LOG_FILE = 'playback_actions.log'
@@ -66,7 +66,10 @@ STOP_MOVER_COMMAND = 'mover stop'
 # Expected SSH output snippets for parsing
 MOVER_NOT_RUNNING_MESSAGE = 'mover: not running'
 PARITY_NOT_RUNNING_MESSAGE = 'Status: No array operation currently in progress'
-PARITY_PAUSED_MESSAGE = 'PAUSED' # Will exit script before PARITY_CORRECTING_MESSAGE even though paues and resume contain Correcting Parity-Check
+PARITY_PAUSED_MESSAGE = 'PAUSED'
+# New constant for the specific parity sync/rebuild message
+PARITY_SYNC_OR_REBUILD_MESSAGE = 'Parity Sync/Data Rebuild'
+# Existing message for parity check/correction
 PARITY_CORRECTING_MESSAGE = 'Correcting Parity-Check' # Covers both correct and check operations
 
 DEFAULT_MOVER_FILE_NAME = 'mover.status'
@@ -341,7 +344,8 @@ def parseParityStatus(status_output: str) -> ParityStatus:
         return ParityStatus.NOT_RUNNING
     if PARITY_PAUSED_MESSAGE in status_output:
         return ParityStatus.PAUSED
-    if PARITY_CORRECTING_MESSAGE in status_output:
+    # Check for the new sync/rebuild message or the existing correcting message
+    if PARITY_CORRECTING_MESSAGE in status_output or PARITY_SYNC_OR_REBUILD_MESSAGE in status_output:
         return ParityStatus.RUNNING
     log.warning(f'Could not parse parity status. Unexpected output: "{status_output}"')
     return ParityStatus.UNKNOWN
