@@ -1,0 +1,5 @@
+# requirements.txt
+paramiko
+requests
+python-dotenv
+qbittorrent-api
