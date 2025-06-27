@@ -1,3 +1,30 @@
+"""
+Plex, qBittorrent, and Unraid Server Automation Script
+
+This script monitors active Plex streams and adjusts Unraid server operations
+(qBittorrent speed, parity check status, mover status) to optimize performance.
+It aims to reduce resource contention during media streaming and restore full
+server performance when no streams are active.
+
+Usage:
+1.  **Dependencies:** Ensure `paramiko`, `requests`, `python-qbittorrent`, and `python-dotenv` are installed (`pip install ...`).
+2.  **Configuration:** Create a `.env` file in the script's directory with the required environment variables (UNRAID_IP, PLEX_IP, PLEX_TOKEN, QBIT_IP, QBIT_USERNAME, QBIT_PASSWORD, UNRAID_USERNAME, UNRAID_PASSWORD, PLEX_PORT, QBIT_PORT, IGNORE_LOCAL_STREAMS).
+3.  **Execution:** Run the script periodically (e.g., via a cron job or Tautulli custom script).
+
+Environment Variables:
+-   `UNRAID_IP`: Hostname or IP of Unraid.
+-   `UNRAID_USERNAME`: SSH username for Unraid.
+-   `UNRAID_PASSWORD`: SSH password for Unraid.
+-   `PLEX_IP`: Hostname or IP of Plex Media Server.
+-   `PLEX_PORT`: Plex port (default: 32400).
+-   `PLEX_TOKEN`: Plex API token.
+-   `QBIT_IP`: Hostname or IP of qBittorrent Web UI.
+-   `QBIT_PORT`: qBittorrent Web UI port (default: 8080).
+-   `QBIT_USERNAME`: qBittorrent Web UI username.
+-   `QBIT_PASSWORD`: qBittorrent Web UI password.
+-   `IGNORE_LOCAL_STREAMS`: 'True' to ignore local Plex streams for optimization, 'False' otherwise (default: 'False').
+"""
+
 # Standard library imports
 import logging  # Logging infrastructure
 import os  # OS-level operations
@@ -305,9 +332,36 @@ def getActiveStreams(plexHost: str, plexToken: str) -> tuple[int, int] | tuple[N
         log.error(f'Failed to parse Plex XML response: {e}')
         return None, None
 
+def getQbitSpeedLimitMode(qbitHost: str, qbitUser: str, qbitPass: str) -> int | None:
+    """
+    Queries the qBittorrent API to get the current speed limits mode.
+
+    Args:
+        qbitHost (str): qBittorrent host (e.g., 'IP:PORT').
+        qbitUser (str): qBittorrent username.
+        qbitPass (str): qBittorrent password.
+
+    Returns:
+        int | None: 1 if speed limits are enabled, 0 if disabled,
+                    or None if there's an error querying the API.
+    """
+    qbit = qbitClient(host=qbitHost)
+    try:
+        qbit.auth_log_in(username=qbitUser, password=qbitPass)
+        # The API returns 1 for enabled, 0 for disabled
+        current_mode = qbit.transfer_speed_limits_mode() # Corrected method name
+        log.debug(f'qBittorrent API returned raw speedLimitsMode: {current_mode}')
+        return int(current_mode) # Ensure it's an int
+    except APIConnectionError as e:
+        log.error(f'qBittorrent connection failed during speed limit mode check: {e}. Check IP/Port and credentials.')
+        return None
+    except Exception as e:
+        log.error(f'An unexpected error occurred while checking qBittorrent speed limit mode: {e}')
+        return None
+
 def limitQbitSpeed(qbitHost: str, qbitUser: str, qbitPass: str, limitSpeed: bool = True) -> bool:
     """
-    Sets or restores qBittorrent speed limits mode.
+    Sets or restores qBittorrent speed limits mode, but only if it needs to be changed.
 
     Args:
         qbitHost (str): qBittorrent host (e.g., 'IP:PORT').
@@ -316,19 +370,43 @@ def limitQbitSpeed(qbitHost: str, qbitUser: str, qbitPass: str, limitSpeed: bool
         limitSpeed (bool): True to enable speed limits, False to disable.
 
     Returns:
-        bool: True if speed limit mode was successfully set, False otherwise.
+        bool: True if speed limit mode was successfully set (or already was), False otherwise.
     """
-    qbit = qbitClient(host=qbitHost)
-    try:
-        qbit.auth_log_in(username=qbitUser, password=qbitPass)
-        qbit.transfer_setSpeedLimitsMode(limitSpeed)
+    current_speed_mode_int = getQbitSpeedLimitMode(qbitHost, qbitUser, qbitPass)
+    desired_speed_mode_int = 1 if limitSpeed else 0 # Convert boolean to int (1 or 0)
+
+    if current_speed_mode_int is None:
+        log.warning("Could not determine current qBittorrent speed limit mode. Attempting to set anyway.")
+        qbit = qbitClient(host=qbitHost)
+        try:
+            qbit.auth_log_in(username=qbitUser, password=qbitPass)
+            qbit.transfer_set_speed_limits_mode(limitSpeed) # Corrected method name
+            log.info(f'qBittorrent speed set to {"limited" if limitSpeed else "normal"} successfully.') # Moved inside
+            return True
+        except APIConnectionError as e:
+            log.error(f'qBittorrent connection failed (fallback set speed): {e}.')
+            return False
+        except Exception as e:
+            log.error(f'An unexpected error occurred (fallback set speed): {e}')
+            return False
+
+    if current_speed_mode_int == desired_speed_mode_int:
+        log.info(f"qBittorrent speed already set to {'limited' if limitSpeed else 'normal'}. No change needed.")
         return True
-    except APIConnectionError as e:
-        log.error(f'qBittorrent connection failed: {e}. Check IP/Port and credentials.')
-        return False
-    except Exception as e:
-        log.error(f'An unexpected error occurred while setting qBittorrent speed: {e}')
-        return False
+    else:
+        log.info(f"Changing qBittorrent speed from {'limited' if current_speed_mode_int == 1 else 'normal'} to {'limited' if limitSpeed else 'normal'}.")
+        qbit = qbitClient(host=qbitHost)
+        try:
+            qbit.auth_log_in(username=qbitUser, password=qbitPass)
+            qbit.transfer_set_speed_limits_mode(limitSpeed) # Corrected method name
+            log.info(f'qBittorrent speed set to {"limited" if limitSpeed else "normal"} successfully.') # Moved inside
+            return True
+        except APIConnectionError as e:
+            log.error(f'qBittorrent connection failed during speed limit change: {e}. Check IP/Port and credentials.')
+            return False
+        except Exception as e:
+            log.error(f'An unexpected error occurred while setting qBittorrent speed: {e}')
+            return False
 
 def parseParityStatus(status_output: str) -> ParityStatus:
     """
@@ -450,7 +528,7 @@ if __name__ == '__main__':
 
             # qBittorrent handling: Apply throttling based on the calculated desired state
             if limitQbitSpeed(qbitHost, QBIT_USERNAME, QBIT_PASSWORD, limitSpeed=desiredQbitThrottleState):
-                log.info(f'qBittorrent speed set to {"limited" if desiredQbitThrottleState else "normal"} successfully.')
+                pass # Log is now handled inside limitQbitSpeed
             else:
                 log.warning('Failed to set qBittorrent speed.')
 
@@ -476,7 +554,7 @@ if __name__ == '__main__':
 
             # qBittorrent handling: Always restore to normal speed if no streams at all
             if limitQbitSpeed(qbitHost, QBIT_USERNAME, QBIT_PASSWORD, limitSpeed=False):
-                log.info('qBittorrent speed restored successfully.')
+                pass # Log is now handled inside limitQbitSpeed
             else:
                 log.warning('Failed to restore qBittorrent speed.')
 
