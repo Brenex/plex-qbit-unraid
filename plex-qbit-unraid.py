@@ -47,7 +47,7 @@ LOG_FILE = 'playback_actions.log'
 logging.basicConfig(
     handlers=[RotatingFileHandler(LOG_FILE, maxBytes=25000, backupCount=0)],
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - (PID:%(process)d) - %(message)s'
+    format='%(asctime)s %(process)d - %(levelname)s - %(message)s'
 )
 log = logging.getLogger()
 
