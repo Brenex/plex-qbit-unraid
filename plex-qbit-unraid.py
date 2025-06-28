@@ -51,6 +51,8 @@ logging.basicConfig(
 )
 log = logging.getLogger()
 
+logging.getLogger("paramiko").setLevel(logging.DEBUG)
+
 # Add this section for the log delimiter
 log.info(f"--- Script Execution Started @ {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
 
@@ -166,7 +168,7 @@ def get_connected_ssh_client(unraidHostname: str, unraidUser: str, unraidPass: s
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        log.info(f"Attempting SSH connection to {unraidUser}@{unraidHostname}...")
+        log.debug(f"Attempting SSH connection to {unraidUser}@{unraidHostname}...")
         ssh.connect(unraidHostname, username=unraidUser, password=unraidPass, timeout=timeout)
         log.info("SSH connection established successfully.")
         return ssh
