@@ -247,17 +247,17 @@ def stopMover(ssh_client: paramiko.SSHClient) -> bool:
     Returns:
         bool: True if mover was running and stopped/interrupted, False otherwise.
     """
-    log.info('Attempting to stop mover...')
+    log.debug('Attempting to stop mover...')
     moverStatus = sendSSHCommand(ssh_client, STOP_MOVER_COMMAND) # Pass the existing client
     if MOVER_NOT_RUNNING_MESSAGE not in moverStatus:
         # If mover was running, it means we interrupted it.
         if writeStatusFile(True):
-            log.info('Mover was running and has been marked as interrupted.')
+            log.debug('Mover was running and has been marked as interrupted.')
             return True
         else:
             log.error('Failed to record mover interruption status.')
             return False
-    log.info('Mover was not running.')
+    log.debug('Mover was not running.')
     return False
 
 def resumeMover(ssh_client: paramiko.SSHClient) -> bool:
@@ -271,7 +271,7 @@ def resumeMover(ssh_client: paramiko.SSHClient) -> bool:
         bool: True if mover was resumed, False if it was not interrupted.
     """
     if readStatusFile():
-        log.info('Mover was previously interrupted, attempting to resume...')
+        log.debug('Mover was previously interrupted, attempting to resume...')
         sendSSHCommand(ssh_client, START_MOVER_COMMAND, waitForOutput=False) # Pass the existing client
         if writeStatusFile(False): # Reset status file
             log.info('Mover resumed and interruption status cleared.')
