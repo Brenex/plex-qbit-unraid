@@ -698,7 +698,7 @@ if __name__ == "__main__":
             if os.path.exists(STREAM_COUNT_FILE):
                 try:
                     os.remove(STREAM_COUNT_FILE)
-                    log.info(
+                    log.debug(
                         f"'{STREAM_COUNT_FILE}' removed as no active streams were detected."
                     )
                 except OSError as e:
