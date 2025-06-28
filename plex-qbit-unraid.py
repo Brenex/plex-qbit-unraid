@@ -323,12 +323,12 @@ def resumeMover(ssh_client: paramiko.SSHClient) -> bool:
             ssh_client, START_MOVER_COMMAND, waitForOutput=False
         )  # Pass the existing client
         if writeStatusFile(False):  # Reset status file
-            log.info("Mover resumed and interruption status cleared.")
+            log.debug("Mover resumed and interruption status cleared.")
             return True
         else:
             log.error("Failed to clear mover interruption status.")
             return False
-    log.info("Mover was not marked as interrupted.")
+    log.debug("Mover was not marked as interrupted.")
     return False
 
 
