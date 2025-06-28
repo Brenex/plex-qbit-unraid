@@ -51,7 +51,9 @@ logging.basicConfig(
 )
 log = logging.getLogger()
 
-logging.getLogger("paramiko").setLevel(logging.DEBUG)
+# === Suppress Paramiko's INFO level logs ===
+# This will prevent messages like "Connected (version 2.0, client OpenSSH_10.0)" from appearing.
+logging.getLogger('paramiko').setLevel(logging.WARNING)
 
 # Add this section for the log delimiter
 log.info(f"--- Script Execution Started @ {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
