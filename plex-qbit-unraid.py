@@ -45,9 +45,9 @@ from qbittorrentapi.exceptions import APIConnectionError  # qBittorrent API conn
 # === Setup Logging ===
 LOG_FILE = 'playback_actions.log'
 logging.basicConfig(
-    handlers=[RotatingFileHandler(LOG_FILE, maxBytes=1000000, backupCount=3)],
+    handlers=[RotatingFileHandler(LOG_FILE, maxBytes=25000, backupCount=0)],
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - (PID:%(process)d) - %(message)s'
 )
 log = logging.getLogger()
 
