@@ -528,7 +528,7 @@ if __name__ == '__main__':
 
         # --- Main Logic Flow based on TOTAL active streams ---
         if totalActiveStreams > 0: # If ANY stream (local or remote) is playing
-            log.info('Active streams detected. Initiating performance optimization actions (limit qBittorrent, pause parity, stop mover)...')
+            # log.info('Active streams detected. Initiating performance optimization actions (limit qBittorrent, pause parity, stop mover)...')
 
             # qBittorrent handling: Apply throttling based on the calculated desired state
             if limitQbitSpeed(qbitHost, QBIT_USERNAME, QBIT_PASSWORD, limitSpeed=desiredQbitThrottleState):
@@ -554,7 +554,7 @@ if __name__ == '__main__':
                 log.info('Mover was not running or failed to stop.')
 
         else: # No active streams (totalActiveStreams == 0)
-            log.info('No active streams detected. Restoring server performance (restore qBittorrent, resume parity, start mover if needed)...')
+            # log.info('No active streams detected. Restoring server performance (restore qBittorrent, resume parity, start mover if needed)...')
 
             # qBittorrent handling: Always restore to normal speed if no streams at all
             if limitQbitSpeed(qbitHost, QBIT_USERNAME, QBIT_PASSWORD, limitSpeed=False):
@@ -588,3 +588,5 @@ if __name__ == '__main__':
         if ssh_client:
             log.info("Closing SSH connection.")
             ssh_client.close()
+
+log.info(f"--- Script Execution Finished @ {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
