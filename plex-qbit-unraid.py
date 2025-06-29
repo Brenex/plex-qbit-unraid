@@ -494,11 +494,13 @@ def parseParityStatus(status_output: str) -> ParityStatus:
     if match:
         md_resync_value = int(match.group(1))
         if md_resync_value == 1:
+            log.debug(f'mdResync is {md_resync_value} and was compared true to 1, ParityStatus.RUNNING')
             return ParityStatus.RUNNING
         elif md_resync_value == 0:
             # As per user's description, 0 means not running or paused.
             # We map it to NOT_RUNNING for simplicity as the script's resume logic
             # handles both scenarios.
+            log.debug(f'mdResync is {md_resync_value} and was compared true to 0, ParityStatus.NOT_RUNNING')
             return ParityStatus.NOT_RUNNING
     log.warning(f'Could not parse parity status from mdResync. Unexpected output: "{status_output}"')
     return ParityStatus.UNKNOWN
