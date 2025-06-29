@@ -132,12 +132,12 @@ class ParityStatus(Enum):
 
 
 # SSH Commands
-# Changed to use mdcmd status for determining if parity is actively running/resyncing
 PARITY_STATUS_COMMAND = 'mdcmd status | egrep "mdResync="'
 PAUSE_PARITY_COMMAND = "parity.check pause"
 RESUME_PARITY_COMMAND = "parity.check resume"
 START_MOVER_COMMAND = "mover"
 STOP_MOVER_COMMAND = "mover stop"
+MOVER_RUNNING_CHECK_COMMAND = "pgrep -f 'mover'" # Command to check if mover process is running
 
 # Expected SSH output snippets for parsing
 MOVER_NOT_RUNNING_MESSAGE = "mover: not running"
@@ -264,7 +264,6 @@ def sendSSHCommand(
 
         stdin, stdout, stderr = ssh_client.exec_command(command, timeout=timeout)
 
-        # --- IMPORTANT CHANGE START ---
         # Get the underlying channel object
         channel = stdout.channel
 
@@ -273,7 +272,6 @@ def sendSSHCommand(
         # It's crucial for commands that produce little or no stdout.
         exit_status = channel.recv_exit_status()
         log.debug(f"Command '{command}' completed with exit status: {exit_status}")
-        # --- IMPORTANT CHANGE END ---
 
         # Now that the command has finished, read any output from stdout and stderr.
         # These reads should no longer time out as the streams are at EOF.
@@ -305,6 +303,7 @@ def sendSSHCommand(
 def stopMover(ssh_client: paramiko.SSHClient) -> bool:
     """
     Attempts to stop the Unraid mover and records if it was interrupted.
+    Performs a pre-check to see if the mover is actually running before attempting to stop.
 
     Args:
         ssh_client (paramiko.SSHClient): An already connected Paramiko SSH client object.
@@ -312,20 +311,33 @@ def stopMover(ssh_client: paramiko.SSHClient) -> bool:
     Returns:
         bool: True if mover was running and stopped/interrupted, False otherwise.
     """
-    log.debug("Attempting to stop mover...")
-    moverStatus = sendSSHCommand(
-        ssh_client, STOP_MOVER_COMMAND
-    )  # Pass the existing client
-    if MOVER_NOT_RUNNING_MESSAGE not in moverStatus:
-        # If mover was running, it means we interrupted it.
-        if writeStatusFile(True):
-            log.debug("Mover was running and has been marked as interrupted.")
-            return True
+    log.debug("Checking if mover is currently running...")
+    # Use pgrep to check if any process named 'mover' is running
+    mover_check_output = sendSSHCommand(ssh_client, MOVER_RUNNING_CHECK_COMMAND)
+
+    if mover_check_output: # If pgrep returns any output (i.e., a PID), mover is running
+        log.info(f"Mover process detected (PID: {mover_check_output}). Attempting to stop mover...")
+        mover_stop_output = sendSSHCommand(ssh_client, STOP_MOVER_COMMAND)
+        
+        # We assume if mover_stop_output contains MOVER_NOT_RUNNING_MESSAGE, it means it was already stopped
+        # or the stop command completed and confirmed it's not running.
+        # If it doesn't contain that, it implies it was running and was told to stop.
+        if MOVER_NOT_RUNNING_MESSAGE not in mover_stop_output:
+            # If mover was running and successfully told to stop, mark as interrupted
+            if writeStatusFile(True):
+                log.info("Mover was running and has been successfully stopped, marked as interrupted.")
+                return True
+            else:
+                log.error("Failed to record mover interruption status after stopping.")
+                return False
         else:
-            log.error("Failed to record mover interruption status.")
+            # This case ideally means 'mover stop' command itself said it wasn't running,
+            # which contradicts pgrep. This scenario should be rare if pgrep is reliable.
+            log.warning("Mover appeared to be running but 'mover stop' command reported it was not.")
             return False
-    log.debug("Mover was not running.")
-    return False
+    else:
+        log.info("Mover was not running (no process detected). No need to stop.")
+        return False
 
 
 def resumeMover(ssh_client: paramiko.SSHClient) -> bool:
@@ -344,12 +356,12 @@ def resumeMover(ssh_client: paramiko.SSHClient) -> bool:
             ssh_client, START_MOVER_COMMAND, waitForOutput=False
         )  # Pass the existing client
         if writeStatusFile(False):  # Reset status file
-            log.debug("Mover resumed and interruption status cleared.")
+            log.info("Mover resumed and interruption status cleared.")
             return True
         else:
             log.error("Failed to clear mover interruption status.")
             return False
-    log.debug("Mover was not marked as interrupted.")
+    log.info("Mover was not marked as interrupted.")
     return False
 
 
@@ -491,7 +503,7 @@ def limitQbitSpeed(
             qbit.transfer_set_speed_limits_mode(limitSpeed)  # Corrected method name
             log.info(
                 f'qBittorrent speed set to {"limited" if limitSpeed else "normal"} successfully.'
-            )  # Moved inside
+            )
             return True
         except APIConnectionError as e:
             log.error(
@@ -642,7 +654,7 @@ if __name__ == "__main__":
 
         # --- Main Logic Flow based on TOTAL active streams ---
         if totalActiveStreams > 0:  # If ANY stream (local or remote) is playing
-            # log.info('Active streams detected. Initiating performance optimization actions (limit qBittorrent, pause parity, stop mover)...')
+            log.info('Active streams detected. Initiating performance optimization actions (limit qBittorrent, pause parity, stop mover)...')
 
             # qBittorrent handling: Apply throttling based on the calculated desired state
             if limitQbitSpeed(
@@ -677,14 +689,15 @@ if __name__ == "__main__":
             else:
                 log.warning(f'Could not determine initial parity status: {current_parity_status.value}. Skipping pause attempt.')
 
-            # Mover handling: Always stop if any stream
-            if stopMover(ssh_client):
-                log.info("Mover stopped and marked as interrupted.")
+
+            # Mover handling: Check and stop if running
+            if stopMover(ssh_client): # stopMover now handles its own pre-check and logging
+                pass # Log messages are now handled internally by stopMover
             else:
-                log.info("Mover was not running or failed to stop.")
+                pass # Log messages are now handled internally by stopMover
 
         else:  # No active streams (totalActiveStreams == 0)
-            # log.info('No active streams detected. Restoring server performance (restore qBittorrent, resume parity, start mover if needed)...')
+            log.info('No active streams detected. Restoring server performance (restore qBittorrent, resume parity, start mover if needed)...')
 
             # qBittorrent handling: Always restore to normal speed if no streams at all
             if limitQbitSpeed(qbitHost, QBIT_USERNAME, QBIT_PASSWORD, limitSpeed=False):
@@ -699,9 +712,9 @@ if __name__ == "__main__":
                 sendSSHCommand(ssh_client, PARITY_STATUS_COMMAND)
             )
             if parityStatus == ParityStatus.RUNNING:
-                log.info('Parity resumed successfully (mdResync=1 detected).')
+                log.info("Parity resumed successfully.")
             elif parityStatus == ParityStatus.NOT_RUNNING:
-                log.info('Parity was not running or failed to resume.') # It might have been NOT_RUNNING to begin with
+                log.info("Parity was not running.")
             else:
                 log.warning(
                     f"Failed to resume parity or parity is in an unexpected state: {parityStatus.value}."
@@ -728,7 +741,7 @@ if __name__ == "__main__":
             if os.path.exists(STREAM_COUNT_FILE):
                 try:
                     os.remove(STREAM_COUNT_FILE)
-                    log.debug(
+                    log.info(
                         f"'{STREAM_COUNT_FILE}' removed as no active streams were detected."
                     )
                 except OSError as e:
