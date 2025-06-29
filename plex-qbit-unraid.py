@@ -685,7 +685,7 @@ if __name__ == "__main__":
                 else:
                     log.warning(f'Failed to pause parity or parity is in an unexpected state after pause attempt: {after_pause_parity_status.value}.')
             elif current_parity_status == ParityStatus.NOT_RUNNING:
-                log.info('Parity was already not running (mdResync=0 detected). No need to pause.')
+                log.info('Parity was not running (mdResync=0 detected). No need to pause.')
             else:
                 log.warning(f'Could not determine initial parity status: {current_parity_status.value}. Skipping pause attempt.')
 
