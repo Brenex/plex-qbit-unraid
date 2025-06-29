@@ -26,6 +26,7 @@ Environment Variables:
 """
 
 # Standard library imports
+import argparse # Command-line argument parsing
 import logging  # Logging infrastructure
 import os  # OS-level operations
 import re # Import for regular expressions
@@ -45,18 +46,44 @@ from qbittorrentapi.exceptions import (
     APIConnectionError,
 )  # qBittorrent API connection error
 
+# === Argument Parsing ===
+parser = argparse.ArgumentParser(
+    description="Plex, qBittorrent, and Unraid Server Automation Script."
+)
+parser.add_argument(
+    "--log-level",
+    "-l",
+    choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+    default='INFO', # Default to INFO level if not specified
+    help="Set the logging level for the script. (default: INFO)"
+)
+args = parser.parse_args()
+
+# Map string log levels to logging constants
+LOG_LEVELS = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL
+}
+chosen_log_level = LOG_LEVELS.get(args.log_level.upper(), logging.INFO)
+
+
 # === Setup Logging ===
 LOG_FILE = "playback_actions.log"
 logging.basicConfig(
     handlers=[RotatingFileHandler(LOG_FILE, maxBytes=25000, backupCount=0)],
-    level=logging.INFO,
+    level=logging.chosen_log_level,
     format="%(asctime)s %(process)d - %(levelname)s - %(message)s",
 )
 log = logging.getLogger()
 
 # === Suppress Paramiko's INFO level logs ===
-# This will prevent messages like "Connected (version 2.0, client OpenSSH_10.0)" from appearing.
-logging.getLogger("paramiko").setLevel(logging.WARNING)
+# Note: Paramiko's own logger level needs to be managed separately if you want its debug messages.
+# If you want to see Paramiko's DEBUG messages, you would set its level to DEBUG as well.
+# logging.getLogger("paramiko").setLevel(logging.DEBUG) # Uncomment this if you want paramiko's debug logs
+logging.getLogger("paramiko").setLevel(logging.WARNING) # Keeping original level to avoid excessive Paramiko output
 
 # Add this section for the log delimiter
 log.info(f"--- Script Execution Started @ {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
