@@ -28,6 +28,7 @@ Environment Variables:
 # Standard library imports
 import logging  # Logging infrastructure
 import os  # OS-level operations
+import re # Import for regular expressions
 import sys  # System-specific parameters and functions
 import time  # Time-related functions
 import traceback  # Stack trace formatting
@@ -104,7 +105,8 @@ class ParityStatus(Enum):
 
 
 # SSH Commands
-PARITY_STATUS_COMMAND = "parity.check status"
+# Changed to use mdcmd status for determining if parity is actively running/resyncing
+PARITY_STATUS_COMMAND = 'mdcmd status | egrep "mdResync="'
 PAUSE_PARITY_COMMAND = "parity.check pause"
 RESUME_PARITY_COMMAND = "parity.check resume"
 START_MOVER_COMMAND = "mover"
@@ -112,14 +114,6 @@ STOP_MOVER_COMMAND = "mover stop"
 
 # Expected SSH output snippets for parsing
 MOVER_NOT_RUNNING_MESSAGE = "mover: not running"
-PARITY_NOT_RUNNING_MESSAGE = "Status: No array operation currently in progress"
-PARITY_PAUSED_MESSAGE = "PAUSED"
-# New constant for the specific parity sync/rebuild message
-PARITY_SYNC_OR_REBUILD_MESSAGE = "Parity Sync/Data Rebuild"
-# Existing message for parity check/correction
-PARITY_CORRECTING_MESSAGE = (
-    "Correcting Parity-Check"  # Covers both correct and check operations
-)
 
 DEFAULT_MOVER_FILE_NAME = "mover.status"
 STREAM_COUNT_FILE = "stream_count.status"
@@ -486,25 +480,27 @@ def limitQbitSpeed(
 
 def parseParityStatus(status_output: str) -> ParityStatus:
     """
-    Parses the output of the 'parity.check status' command.
+    Parses the output of the 'mdcmd status | egrep "mdResync="' command.
 
     Args:
-        status_output (str): The raw output string from the parity status command.
+        status_output (str): The raw output string from the mdResync status command (e.g., "mdResync=0").
 
     Returns:
-        ParityStatus: An Enum representing the current parity status.
+        ParityStatus: An Enum representing the current parity status based on mdResync.
+                      mdResync=1 -> RUNNING
+                      mdResync=0 -> NOT_RUNNING (covers both not running and paused states)
     """
-    if PARITY_NOT_RUNNING_MESSAGE in status_output:
-        return ParityStatus.NOT_RUNNING
-    if PARITY_PAUSED_MESSAGE in status_output:
-        return ParityStatus.PAUSED
-    # Check for the new sync/rebuild message or the existing correcting message
-    if (
-        PARITY_CORRECTING_MESSAGE in status_output
-        or PARITY_SYNC_OR_REBUILD_MESSAGE in status_output
-    ):
-        return ParityStatus.RUNNING
-    log.warning(f'Could not parse parity status. Unexpected output: "{status_output}"')
+    match = re.search(r'mdResync=(\d+)', status_output)
+    if match:
+        md_resync_value = int(match.group(1))
+        if md_resync_value == 1:
+            return ParityStatus.RUNNING
+        elif md_resync_value == 0:
+            # As per user's description, 0 means not running or paused.
+            # We map it to NOT_RUNNING for simplicity as the script's resume logic
+            # handles both scenarios.
+            return ParityStatus.NOT_RUNNING
+    log.warning(f'Could not parse parity status from mdResync. Unexpected output: "{status_output}"')
     return ParityStatus.UNKNOWN
 
 
@@ -639,9 +635,9 @@ if __name__ == "__main__":
                 sendSSHCommand(ssh_client, PARITY_STATUS_COMMAND)
             )
             if parityStatus == ParityStatus.PAUSED:
-                log.info("Parity paused successfully.")
-            elif parityStatus == ParityStatus.NOT_RUNNING:
-                log.info("Parity was not running.")
+                log.debug('Parity paused successfully (mdResync=0 detected).')
+            elif parityStatus == ParityStatus.RUNNING: # This would imply pause failed
+                log.warning(f'Failed to pause parity; mdResync is still running.')
             else:
                 log.warning(
                     f"Failed to pause parity or parity is in an unexpected state: {parityStatus.value}."
@@ -669,9 +665,9 @@ if __name__ == "__main__":
                 sendSSHCommand(ssh_client, PARITY_STATUS_COMMAND)
             )
             if parityStatus == ParityStatus.RUNNING:
-                log.info("Parity resumed successfully.")
+                log.info('Parity resumed successfully (mdResync=1 detected).')
             elif parityStatus == ParityStatus.NOT_RUNNING:
-                log.info("Parity was not running.")
+                log.info('Parity was not running or failed to resume.') # It might have been NOT_RUNNING to begin with
             else:
                 log.warning(
                     f"Failed to resume parity or parity is in an unexpected state: {parityStatus.value}."
