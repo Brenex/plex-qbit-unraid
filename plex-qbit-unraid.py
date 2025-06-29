@@ -655,20 +655,27 @@ if __name__ == "__main__":
             else:
                 log.warning("Failed to set qBittorrent speed.")
 
-            # Parity handling: Always pause if any stream
-            sendSSHCommand(ssh_client, PAUSE_PARITY_COMMAND, waitForOutput=False)
-            time.sleep(1)
-            parityStatus = parseParityStatus(
-                sendSSHCommand(ssh_client, PARITY_STATUS_COMMAND)
-            )
-            if parityStatus == ParityStatus.PAUSED:
-                log.debug('Parity paused successfully (mdResync=0 detected).')
-            elif parityStatus == ParityStatus.RUNNING: # This would imply pause failed
-                log.warning(f'Failed to pause parity; mdResync is still running.')
+            # Parity handling: Check status before attempting to pause
+            current_parity_status_output = sendSSHCommand(ssh_client, PARITY_STATUS_COMMAND)
+            current_parity_status = parseParityStatus(current_parity_status_output)
+
+            if current_parity_status == ParityStatus.RUNNING:
+                log.info('Parity is running (mdResync!=0 detected), attempting to pause...')
+                sendSSHCommand(ssh_client, PAUSE_PARITY_COMMAND, waitForOutput=False)
+                time.sleep(1) # Give Unraid a moment to process the pause command
+                # Re-check status to confirm pause
+                after_pause_parity_status = parseParityStatus(sendSSHCommand(ssh_client, PARITY_STATUS_COMMAND))
+
+                if after_pause_parity_status == ParityStatus.NOT_RUNNING:
+                    log.info('Parity paused successfully (mdResync=0 detected after pause command).')
+                elif after_pause_parity_status == ParityStatus.RUNNING:
+                    log.warning(f'Failed to pause parity; mdResync is still running after pause attempt.')
+                else:
+                    log.warning(f'Failed to pause parity or parity is in an unexpected state after pause attempt: {after_pause_parity_status.value}.')
+            elif current_parity_status == ParityStatus.NOT_RUNNING:
+                log.info('Parity was already not running (mdResync=0 detected). No need to pause.')
             else:
-                log.warning(
-                    f"Failed to pause parity or parity is in an unexpected state: {parityStatus.value}."
-                )
+                log.warning(f'Could not determine initial parity status: {current_parity_status.value}. Skipping pause attempt.')
 
             # Mover handling: Always stop if any stream
             if stopMover(ssh_client):
