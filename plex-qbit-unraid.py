@@ -514,23 +514,21 @@ def parseParityStatus(status_output: str) -> ParityStatus:
 
     Returns:
         ParityStatus: An Enum representing the current parity status based on mdResync.
-                      mdResync=1 -> RUNNING
+                      mdResync=1+ -> RUNNING
                       mdResync=0 -> NOT_RUNNING (covers both not running and paused states)
     """
     match = re.search(r'mdResync=(\d+)', status_output)
     if match:
         md_resync_value = int(match.group(1))
-        if md_resync_value == 1:
-            log.debug(f'mdResync is {md_resync_value} and was compared true to 1, ParityStatus.RUNNING')
-            return ParityStatus.RUNNING
-        elif md_resync_value == 0:
+        if md_resync_value == 0:
             # As per user's description, 0 means not running or paused.
-            # We map it to NOT_RUNNING for simplicity as the script's resume logic
-            # handles both scenarios.
-            log.debug(f'mdResync is {md_resync_value} and was compared true to 0, ParityStatus.NOT_RUNNING')
+            log.debug(f'mdResync is {md_resync_value}, mapping to ParityStatus.NOT_RUNNING')
             return ParityStatus.NOT_RUNNING
+        else: # Any non-zero value means it is running
+            log.debug(f'mdResync is {md_resync_value} (non-zero), mapping to ParityStatus.RUNNING')
+            return ParityStatus.RUNNING
     log.warning(f'Could not parse parity status from mdResync. Unexpected output: "{status_output}"')
-    return ParityStatus.UNKNOWN # Corrected: Ensure a return value for all paths
+    return ParityStatus.UNKNOWN # Ensure a return value for all paths
 
 
 def checkAndCreateLock() -> None:
