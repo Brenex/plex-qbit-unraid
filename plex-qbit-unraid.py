@@ -74,7 +74,7 @@ chosen_log_level = LOG_LEVELS.get(args.log_level.upper(), logging.INFO)
 LOG_FILE = "playback_actions.log"
 logging.basicConfig(
     handlers=[RotatingFileHandler(LOG_FILE, maxBytes=25000, backupCount=0)],
-    level=logging.chosen_log_level,
+    level=chosen_log_level,
     format="%(asctime)s %(process)d - %(levelname)s - %(message)s",
 )
 log = logging.getLogger()
@@ -530,7 +530,7 @@ def parseParityStatus(status_output: str) -> ParityStatus:
             log.debug(f'mdResync is {md_resync_value} and was compared true to 0, ParityStatus.NOT_RUNNING')
             return ParityStatus.NOT_RUNNING
     log.warning(f'Could not parse parity status from mdResync. Unexpected output: "{status_output}"')
-    return ParityStatus.UNKNOWN
+    return ParityStatus.UNKNOWN # Corrected: Ensure a return value for all paths
 
 
 def checkAndCreateLock() -> None:
