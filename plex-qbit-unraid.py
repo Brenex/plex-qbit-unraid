@@ -64,6 +64,13 @@ parser.add_argument(
     action="store_true", # This makes it a boolean flag
     help="Do not create or write to a log file. All logs will go to stderr."
 )
+# New argument for custom mover start command
+parser.add_argument(
+    "--mover-script",
+    type=str,
+    default="mover start", # Default to the standard mover start command
+    help="Custom command to start the Unraid mover. (default: 'mover start')"
+)
 args = parser.parse_args()
 
 # Map string log levels to logging constants
@@ -158,7 +165,7 @@ class ParityStatus(Enum):
 PARITY_STATUS_COMMAND = 'mdcmd status | egrep "mdResync="'
 PAUSE_PARITY_COMMAND = "parity.check pause"
 RESUME_PARITY_COMMAND = "parity.check resume"
-START_MOVER_COMMAND = "mover start"
+START_MOVER_COMMAND = args.mover_script
 STOP_MOVER_COMMAND = "mover stop"
 MOVER_RUNNING_CHECK_COMMAND = "pgrep -f 'mover'" # Command to check if mover process is running
 
@@ -420,6 +427,7 @@ def resumeMover(ssh_client: paramiko.SSHClient) -> bool:
     """
     if readStatusFile():
         log.debug("Mover was previously interrupted, attempting to resume...")
+        # Use the dynamically set START_MOVER_COMMAND
         sendSSHCommand(
             ssh_client, START_MOVER_COMMAND, waitForOutput=False
         )  # Pass the existing client
