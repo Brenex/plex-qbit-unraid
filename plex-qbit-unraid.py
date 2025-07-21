@@ -236,7 +236,7 @@ def get_connected_ssh_client(
             try:
                 log.debug(f"Attempting SSH connection to {unraidUser}@{unraidHostname} using private key: {expanded_private_key_path}...")
                 # Paramiko automatically determines key type (RSA, DSA, ECDSA, Ed25519)
-                private_key = paramiko.RSAKey.from_private_key_file(expanded_private_key_path) # Default to RSA for broader compatibility
+                private_key = paramiko.Ed25519Key.from_private_key_file(expanded_private_key_path) # Default to RSA for broader compatibility
                 # Try specific key types if RSA fails, or use AutoAddPolicy
                 # For Ed25519: private_key = paramiko.Ed25519Key.from_private_key_file(expanded_private_key_path)
                 # For ECDSA: private_key = paramiko.ECDSAKey.from_private_key_file(expanded_private_key_path)
