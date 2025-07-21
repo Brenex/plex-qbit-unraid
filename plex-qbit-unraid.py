@@ -8,13 +8,15 @@ server performance when no streams are active.
 
 Usage:
 1.  **Dependencies:** Ensure `paramiko`, `requests`, `python-qbittorrent`, and `python-dotenv` are installed (`pip install ...`).
-2.  **Configuration:** Create a `.env` file in the script's directory with the required environment variables (UNRAID_IP, PLEX_IP, PLEX_TOKEN, QBIT_IP, QBIT_USERNAME, QBIT_PASSWORD, UNRAID_USERNAME, UNRAID_PASSWORD, PLEX_PORT, QBIT_PORT, IGNORE_LOCAL_STREAMS).
+2.  **Configuration:** Create a `.env` file in the script's directory with the required environment variables (UNRAID_IP, PLEX_IP, PLEX_TOKEN, QBIT_IP, QBIT_USERNAME, QBIT_PASSWORD, UNRAID_USERNAME, PLEX_PORT, QBIT_PORT, IGNORE_LOCAL_STREAMS).
+    * For SSH to Unraid, provide either `UNRAID_PRIVATE_KEY_PATH` OR `UNRAID_PASSWORD`. `UNRAID_PRIVATE_KEY_PATH` is preferred.
 3.  **Execution:** Run the script periodically (e.g., via a cron job or Tautulli custom script).
 
 Environment Variables:
 -   `UNRAID_IP`: Hostname or IP of Unraid.
 -   `UNRAID_USERNAME`: SSH username for Unraid.
--   `UNRAID_PASSWORD`: SSH password for Unraid.
+-   `UNRAID_PRIVATE_KEY_PATH`: (Optional) Full path to the SSH private key for Unraid. Used preferentially over password.
+-   `UNRAID_PASSWORD`: (Optional, fallback if UNRAID_PRIVATE_KEY_PATH not used) SSH password for Unraid.
 -   `PLEX_IP`: Hostname or IP of Plex Media Server.
 -   `PLEX_PORT`: Plex port (default: 32400).
 -   `PLEX_TOKEN`: Plex API token.
@@ -101,7 +103,6 @@ required_envs = [
     "QBIT_USERNAME",
     "QBIT_PASSWORD",
     "UNRAID_USERNAME",
-    "UNRAID_PASSWORD",
 ]
 missing = [var for var in required_envs if not os.environ.get(var)]
 if missing:
@@ -117,8 +118,13 @@ QBIT_PORT = os.environ.get("QBIT_PORT")
 QBIT_USERNAME = os.environ.get("QBIT_USERNAME")
 QBIT_PASSWORD = os.environ.get("QBIT_PASSWORD")
 UNRAID_USERNAME = os.environ.get("UNRAID_USERNAME")
-UNRAID_PASSWORD = os.environ.get("UNRAID_PASSWORD")
+UNRAID_PASSWORD = os.environ.get("UNRAID_PASSWORD") # Keep this, it's the fallback
+UNRAID_PRIVATE_KEY_PATH = os.environ.get("UNRAID_PRIVATE_KEY_PATH") # New optional variable
 
+# Check that at least one of password or private key path is provided for SSH
+if not UNRAID_PRIVATE_KEY_PATH and not UNRAID_PASSWORD:
+    log.critical("Either UNRAID_PRIVATE_KEY_PATH or UNRAID_PASSWORD must be set in the .env file for Unraid SSH. Exiting.")
+    sys.exit(1)
 
 # === Constants and Configuration ===
 # Define an Enum for parity status for clarity and robustness
@@ -199,15 +205,22 @@ def readStatusFile(fileLocation: str = DEFAULT_MOVER_FILE_NAME) -> int:
 
 
 def get_connected_ssh_client(
-    unraidHostname: str, unraidUser: str, unraidPass: str, timeout: int = 10
+    unraidHostname: str,
+    unraidUser: str,
+    unraidPass: str | None, # Make password optional as key is preferred
+    privateKeyPath: str | None = None, # New: Optional path to private key
+    timeout: int = 10
 ) -> paramiko.SSHClient | None:
     """
-    Establishes and returns a connected Paramiko SSH client.
+    Establishes and returns a connected Paramiko SSH client,
+    attempting key-based authentication first if a private key path is provided,
+    then falling back to password authentication.
 
     Args:
         unraidHostname (str): IP address or hostname of Unraid.
         unraidUser (str): SSH username for Unraid.
-        unraidPass (str): SSH password for Unraid.
+        unraidPass (str | None): SSH password for Unraid. Can be None if using a private key.
+        privateKeyPath (str | None): Optional. Full path to the SSH private key file.
         timeout (int): Connection timeout in seconds.
 
     Returns:
@@ -215,25 +228,63 @@ def get_connected_ssh_client(
     """
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    try:
-        log.debug(f"Attempting SSH connection to {unraidUser}@{unraidHostname}...")
-        ssh.connect(
-            unraidHostname, username=unraidUser, password=unraidPass, timeout=timeout
-        )
-        log.info("SSH connection established successfully.")
-        return ssh
-    except paramiko.AuthenticationException:
-        log.error(
-            f"SSH authentication failed for {unraidUser}@{unraidHostname}. Check credentials."
-        )
-    except paramiko.ssh_exception.NoValidConnectionsError as e:
-        log.error(
-            f"SSH connection failed to {unraidHostname} (Is host reachable and SSH enabled?): {e}"
-        )
-    except paramiko.SSHException as e:
-        log.error(f"An SSH error occurred during connection: {e}")
-    except Exception as e:
-        log.error(f"An unexpected error occurred during SSH connection: {e}")
+
+    # 1. Attempt key-based authentication first
+    if privateKeyPath:
+        expanded_private_key_path = os.path.expanduser(privateKeyPath)
+        if os.path.exists(expanded_private_key_path):
+            try:
+                log.debug(f"Attempting SSH connection to {unraidUser}@{unraidHostname} using private key: {expanded_private_key_path}...")
+                # Paramiko automatically determines key type (RSA, DSA, ECDSA, Ed25519)
+                private_key = paramiko.RSAKey.from_private_key_file(expanded_private_key_path) # Default to RSA for broader compatibility
+                # Try specific key types if RSA fails, or use AutoAddPolicy
+                # For Ed25519: private_key = paramiko.Ed25519Key.from_private_key_file(expanded_private_key_path)
+                # For ECDSA: private_key = paramiko.ECDSAKey.from_private_key_file(expanded_private_key_path)
+                # For DSA: private_key = paramiko.DSSKey.from_private_key_file(expanded_private_key_path)
+
+                ssh.connect(
+                    hostname=unraidHostname, username=unraidUser, pkey=private_key, timeout=timeout
+                )
+                log.info("SSH connection established successfully using key-based authentication.")
+                return ssh
+            except paramiko.AuthenticationException:
+                log.warning(
+                    f"Key-based SSH authentication failed for {unraidUser}@{unraidHostname} using key {expanded_private_key_path}. Trying password fallback if available."
+                )
+            except paramiko.SSHException as e:
+                log.warning(f"SSH error during key-based connection attempt to {unraidHostname}: {e}. Trying password fallback if available.")
+            except FileNotFoundError: # Should be caught by os.path.exists, but good for explicit logging
+                log.warning(f"Private key file not found at {expanded_private_key_path}. Trying password fallback if available.")
+            except Exception as e:
+                log.warning(f"Unexpected error during key-based connection attempt to {unraidHostname}: {e}. Trying password fallback if available.")
+        else:
+            log.warning(f"Private key file not found at {expanded_private_key_path}. Trying password fallback if available.")
+
+
+    # 2. Fallback to password-based authentication if key auth failed or no key path provided
+    if unraidPass:
+        try:
+            log.debug(f"Attempting SSH connection to {unraidUser}@{unraidHostname} using password authentication...")
+            ssh.connect(
+                hostname=unraidHostname, username=unraidUser, password=unraidPass, timeout=timeout
+            )
+            log.info("SSH connection established successfully using password authentication.")
+            return ssh
+        except paramiko.AuthenticationException:
+            log.error(
+                f"SSH password authentication failed for {unraidUser}@{unraidHostname}. Check UNRAID_PASSWORD."
+            )
+        except paramiko.ssh_exception.NoValidConnectionsError as e:
+            log.error(
+                f"SSH connection failed to {unraidHostname} (Is host reachable and SSH enabled?): {e}"
+            )
+        except paramiko.SSHException as e:
+            log.error(f"An SSH error occurred during password connection attempt: {e}")
+        except Exception as e:
+            log.error(f"An unexpected error occurred during password connection attempt: {e}")
+    else:
+        log.error("No UNRAID_PRIVATE_KEY_PATH provided or key-based authentication failed, and no UNRAID_PASSWORD provided. Cannot authenticate via SSH.")
+
     return None
 
 
@@ -644,7 +695,7 @@ if __name__ == "__main__":
 
         # Establish the SSH connection (if not already connected) before any SSH commands
         ssh_client = get_connected_ssh_client(
-            UNRAID_IP, UNRAID_USERNAME, UNRAID_PASSWORD
+            UNRAID_IP, UNRAID_USERNAME, UNRAID_PASSWORD, UNRAID_PRIVATE_KEY_PATH # Pass the new argument
         )
         if ssh_client is None:
             log.critical(
