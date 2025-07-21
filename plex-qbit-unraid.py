@@ -158,7 +158,7 @@ class ParityStatus(Enum):
 PARITY_STATUS_COMMAND = 'mdcmd status | egrep "mdResync="'
 PAUSE_PARITY_COMMAND = "parity.check pause"
 RESUME_PARITY_COMMAND = "parity.check resume"
-START_MOVER_COMMAND = "mover"
+START_MOVER_COMMAND = "mover start"
 STOP_MOVER_COMMAND = "mover stop"
 MOVER_RUNNING_CHECK_COMMAND = "pgrep -f 'mover'" # Command to check if mover process is running
 
@@ -678,10 +678,7 @@ def readLastStreamCount() -> int:
 
 # === Main Execution ===
 if __name__ == "__main__":
-    # No longer attempting to set log file ownership here.
-    # The script should be run as the desired user (e.g., 'tautulli').
-
-    checkAndCreateLock()  # This will create the lock file with the script's user/group ownership.
+    checkAndCreateLock()
 
     ssh_client = None
 
