@@ -10,6 +10,7 @@ Usage:
 1.  **Dependencies:** Ensure `paramiko`, `requests`, `python-qbittorrent`, and `python-dotenv` are installed (`pip install ...`).
 2.  **Configuration:** Create a `.env` file in the script's directory with the required environment variables (UNRAID_IP, PLEX_IP, PLEX_TOKEN, QBIT_IP, QBIT_USERNAME, QBIT_PASSWORD, UNRAID_USERNAME, PLEX_PORT, QBIT_PORT, IGNORE_LOCAL_STREAMS).
     * For SSH to Unraid, provide either `UNRAID_PRIVATE_KEY_PATH` OR `UNRAID_PASSWORD`. `UNRAID_PRIVATE_KEY_PATH` is preferred.
+    * Optionally, set `MOVER_START_COMMAND` in the .env file to specify a custom mover start command.
 3.  **Execution:** Run the script periodically (e.g., via a cron job or Tautulli custom script).
 
 Environment Variables:
@@ -25,6 +26,7 @@ Environment Variables:
 -   `QBIT_USERNAME`: qBittorrent Web UI username.
 -   `QBIT_PASSWORD`: qBittorrent Web UI password.
 -   `IGNORE_LOCAL_STREAMS`: 'True' to ignore local Plex streams for optimization, 'False' otherwise (default: 'False').
+-   `MOVER_START_COMMAND`: (Optional) Custom command to start the Unraid mover. Overrides the default "mover start". Overridden by `--mover-script` command-line argument.
 """
 
 # Standard library imports
@@ -68,8 +70,8 @@ parser.add_argument(
 parser.add_argument(
     "--mover-script",
     type=str,
-    default="mover start", # Default to the standard mover start command
-    help="Custom command to start the Unraid mover. (default: 'mover start')"
+    default=None, # Default to None, indicating it's not set via CLI
+    help="Custom command to start the Unraid mover. Takes precedence over MOVER_START_COMMAND in .env"
 )
 args = parser.parse_args()
 
@@ -144,6 +146,7 @@ QBIT_PASSWORD = os.environ.get("QBIT_PASSWORD")
 UNRAID_USERNAME = os.environ.get("UNRAID_USERNAME")
 UNRAID_PASSWORD = os.environ.get("UNRAID_PASSWORD") # Keep this, it's the fallback
 UNRAID_PRIVATE_KEY_PATH = os.environ.get("UNRAID_PRIVATE_KEY_PATH") # New optional variable
+MOVER_START_COMMAND = os.environ.get("MOVER_START_COMMAND") # New environment variable
 
 # Check that at least one of password or private key path is provided for SSH
 if not UNRAID_PRIVATE_KEY_PATH and not UNRAID_PASSWORD:
@@ -165,7 +168,18 @@ class ParityStatus(Enum):
 PARITY_STATUS_COMMAND = 'mdcmd status | egrep "mdResync="'
 PAUSE_PARITY_COMMAND = "parity.check pause"
 RESUME_PARITY_COMMAND = "parity.check resume"
-START_MOVER_COMMAND = args.mover_script
+
+# Determine START_MOVER_COMMAND based on precedence: CLI > .env > default
+if args.mover_script is not None:
+    START_MOVER_COMMAND = args.mover_script
+    log.debug(f"Using mover start command from CLI argument: '{START_MOVER_COMMAND}'")
+elif MOVER_START_COMMAND:
+    START_MOVER_COMMAND = MOVER_START_COMMAND
+    log.debug(f"Using mover start command from .env file: '{START_MOVER_COMMAND}'")
+else:
+    START_MOVER_COMMAND = "mover start"
+    log.debug(f"Using default mover start command: '{START_MOVER_COMMAND}'")
+
 STOP_MOVER_COMMAND = "mover stop"
 MOVER_RUNNING_CHECK_COMMAND = "pgrep -f 'mover'" # Command to check if mover process is running
 
