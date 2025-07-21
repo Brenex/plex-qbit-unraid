@@ -338,44 +338,56 @@ def sendSSHCommand(
     Args:
         ssh_client (paramiko.SSHClient): An already connected Paramiko SSH client object.
         command (str): The command string to execute.
-        waitForOutput (bool): If True, waits for and returns stdout.
-        timeout (int): Command execution timeout in seconds. This timeout primarily
-                       applies to establishing the command session and waiting for
-                       initial output. Subsequent reads are handled by waiting for
-                       the command to complete.
+        waitForOutput (bool): If True, waits for and returns stdout. If False,
+                              the command is executed in the background on the remote
+                              server using ' & disown' and the function returns immediately.
+        timeout (int): Connection timeout in seconds. This timeout primarily
+                       applies to establishing the command session.
 
     Returns:
         str: The decoded stdout output if waitForOutput is True, otherwise an empty string.
              Returns empty string on any SSH error.
     """
     try:
-        log.debug(f"Executing SSH command: '{command}'")
+        # If not waiting for output, run the command in the background on the remote server
+        if not waitForOutput:
+            log.debug(f"Executing SSH command in background: '{command} & disown'")
+            # Add ' & disown' to ensure it runs in the background and is detached from the shell session
+            # 'disown' is important to prevent SIGHUP when the SSH session closes.
+            command_to_execute = f"{command} & disown"
+        else:
+            log.debug(f"Executing SSH command: '{command}'")
+            command_to_execute = command
 
-        stdin, stdout, stderr = ssh_client.exec_command(command, timeout=timeout)
-
-        # Get the underlying channel object
-        channel = stdout.channel
-
-        # Wait for the command to finish executing on the remote side.
-        # This will block until the command provides its exit status.
-        # It's crucial for commands that produce little or no stdout.
-        exit_status = channel.recv_exit_status()
-        log.debug(f"Command '{command}' completed with exit status: {exit_status}")
-
-        # Now that the command has finished, read any output from stdout and stderr.
-        # These reads should no longer time out as the streams are at EOF.
-        output = stdout.read().decode().strip()
-        error_output = stderr.read().decode().strip()
-
-        if error_output:
-            log.error(f"SSH command '{command}' produced stderr: {error_output}")
-
-        if output:
-            log.debug(f"SSH command '{command}' stdout: {output}")
+        stdin, stdout, stderr = ssh_client.exec_command(command_to_execute, timeout=timeout)
 
         if waitForOutput:
+            # Get the underlying channel object
+            channel = stdout.channel
+
+            # Wait for the command to finish executing on the remote side.
+            # This will block until the command provides its exit status.
+            exit_status = channel.recv_exit_status()
+            log.debug(f"Command '{command}' completed with exit status: {exit_status}")
+
+            output = stdout.read().decode().strip()
+            error_output = stderr.read().decode().strip()
+
+            if error_output:
+                log.error(f"SSH command '{command}' produced stderr: {error_output}")
+
+            if output:
+                log.debug(f"SSH command '{command}' stdout: {output}")
+
             return output
         else:
+            # For background commands, we don't read output or wait for exit status.
+            # Just close the channels immediately to release resources.
+            # The command is expected to run independently on the remote side.
+            stdin.close()
+            stdout.close()
+            stderr.close()
+            log.info(f"Command '{command}' sent for background execution.")
             return ""
 
     except paramiko.SSHException as e:
@@ -441,7 +453,7 @@ def resumeMover(ssh_client: paramiko.SSHClient) -> bool:
     """
     if readStatusFile():
         log.debug("Mover was previously interrupted, attempting to resume...")
-        # Use the dynamically set START_MOVER_COMMAND
+        # Use the dynamically set START_MOVER_COMMAND and execute in background
         sendSSHCommand(
             ssh_client, START_MOVER_COMMAND, waitForOutput=False
         )  # Pass the existing client
@@ -760,7 +772,7 @@ if __name__ == "__main__":
 
             if current_parity_status == ParityStatus.RUNNING:
                 log.info('Parity is running (mdResync!=0 detected), attempting to pause...')
-                sendSSHCommand(ssh_client, PAUSE_PARITY_COMMAND, waitForOutput=False)
+                sendSSHCommand(ssh_client, PAUSE_PARITY_COMMAND, waitForOutput=True)
                 time.sleep(1) # Give Unraid a moment to process the pause command
                 # Re-check status to confirm pause
                 after_pause_parity_status = parseParityStatus(sendSSHCommand(ssh_client, PARITY_STATUS_COMMAND))
@@ -793,7 +805,7 @@ if __name__ == "__main__":
                 log.warning("Failed to restore qBittorrent speed.")
 
             # Parity handling: Always resume if no streams
-            sendSSHCommand(ssh_client, RESUME_PARITY_COMMAND, waitForOutput=False)
+            sendSSHCommand(ssh_client, RESUME_PARITY_COMMAND, waitForOutput=True)
             time.sleep(1)
             parityStatus = parseParityStatus(
                 sendSSHCommand(ssh_client, PARITY_STATUS_COMMAND)
