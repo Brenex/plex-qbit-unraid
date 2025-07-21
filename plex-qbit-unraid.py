@@ -59,6 +59,11 @@ parser.add_argument(
     default='INFO', # Default to INFO level if not specified
     help="Set the logging level for the script. (default: INFO)"
 )
+parser.add_argument(
+    "--no-log-file",
+    action="store_true", # This makes it a boolean flag
+    help="Do not create or write to a log file. All logs will go to stderr."
+)
 args = parser.parse_args()
 
 # Map string log levels to logging constants
@@ -74,8 +79,20 @@ chosen_log_level = LOG_LEVELS.get(args.log_level.upper(), logging.INFO)
 
 # === Setup Logging ===
 LOG_FILE = "playback_actions.log"
+handlers = []
+
+if not args.no_log_file:
+    # If a log file is desired, add the RotatingFileHandler
+    handlers.append(RotatingFileHandler(LOG_FILE, maxBytes=25000, backupCount=0))
+    # Also output to console (stdout) for immediate feedback during interactive runs
+    handlers.append(logging.StreamHandler(sys.stdout))
+else:
+    # If no log file, ensure logs still go to stderr (default for basicConfig without handlers)
+    handlers.append(logging.StreamHandler(sys.stderr))
+
+
 logging.basicConfig(
-    handlers=[RotatingFileHandler(LOG_FILE, maxBytes=25000, backupCount=0)],
+    handlers=handlers,
     level=chosen_log_level,
     format="%(asctime)s %(process)d - %(levelname)s - %(message)s",
 )
