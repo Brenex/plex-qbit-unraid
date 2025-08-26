@@ -189,6 +189,7 @@ MOVER_NOT_RUNNING_MESSAGE = "mover: not running"
 DEFAULT_MOVER_FILE_NAME = "mover.status"
 STREAM_COUNT_FILE = "stream_count.status"
 LOCK_FILE = "script.lock"
+MAX_LOCK_AGE_SECONDS = 900 # 15 minutes. Stale lock files older than this will be removed.
 
 # Convert environment variable string to boolean
 # Defaults to False if IGNORE_LOCAL_STREAMS is not set in the environment.
@@ -647,20 +648,38 @@ def parseParityStatus(status_output: str) -> ParityStatus:
 
 def checkAndCreateLock() -> None:
     """
-    Checks for the existence of a lock file and creates it if not present.
-    Exits the script if a lock file already exists.
+    Checks for a lock file. If it's stale, removes it.
+    Exits if a recent lock file exists. Otherwise, creates a new lock file.
     """
     if os.path.exists(LOCK_FILE):
-        log.warning("Lock file exists. Exiting to avoid duplicate execution.")
-        sys.exit(1)
+        try:
+            # Check the modification time of the lock file
+            lock_file_age = time.time() - os.path.getmtime(LOCK_FILE)
+            if lock_file_age > MAX_LOCK_AGE_SECONDS:
+                log.warning(
+                    f"Found stale lock file '{LOCK_FILE}' (age: {lock_file_age:.0f} seconds). "
+                    f"Removing and proceeding."
+                )
+                # Attempt to remove the stale lock before creating a new one
+                removeLock()
+            else:
+                log.warning(
+                    f"Lock file '{LOCK_FILE}' exists and is recent (age: {lock_file_age:.0f} seconds). "
+                    f"Another instance may be running. Exiting."
+                )
+                sys.exit(1)
+        except OSError as e:
+            log.critical(f"Error accessing lock file {LOCK_FILE}: {e}. Exiting.")
+            sys.exit(1)
+
+    # Proceed to create the lock file
     try:
         with open(LOCK_FILE, "w") as f:
-            f.write("lock")
+            f.write(str(os.getpid())) # Write the current process ID for better debugging
         log.info(f"Lock file '{LOCK_FILE}' created.")
     except IOError as e:
         log.critical(f"Failed to create lock file {LOCK_FILE}: {e}. Exiting.")
         sys.exit(1)
-
 
 def removeLock() -> None:
     """
