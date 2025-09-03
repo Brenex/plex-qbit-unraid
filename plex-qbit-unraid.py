@@ -88,24 +88,41 @@ chosen_log_level = LOG_LEVELS.get(args.log_level.upper(), logging.INFO)
 
 # === Setup Logging ===
 LOG_FILE = "playback_actions.log"
-handlers = []
 
+# 1. Get a unique, named logger for this script to avoid conflicts.
+log = logging.getLogger("PlexQbitUnraidScript")
+log.setLevel(chosen_log_level)
+
+# 2. Define a standard format for all handlers.
+formatter = logging.Formatter("%(asctime)s %(process)d - %(levelname)s - %(message)s")
+
+# 3. Prevent log messages from propagating to the root logger (Tautulli's logger).
+#    This stops your script's logs from appearing in Tautulli's main log files.
+#    Set to True if you WANT them to appear in both places.
+log.propagate = False
+
+# 4. Clear any existing handlers on this specific logger, in case the script
+#    is reloaded in a persistent environment.
+if log.hasHandlers():
+    log.handlers.clear()
+
+# 5. Create and configure handlers based on arguments.
 if not args.no_log_file:
-    # If a log file is desired, add the RotatingFileHandler
-    handlers.append(RotatingFileHandler(LOG_FILE, maxBytes=25000, backupCount=0))
-    # Also output to console (stdout) for immediate feedback during interactive runs
-    handlers.append(logging.StreamHandler(sys.stdout))
+    # Rotating file handler that respects maxBytes
+    file_handler = RotatingFileHandler(LOG_FILE, maxBytes=25000, backupCount=0)
+    file_handler.setFormatter(formatter)
+    log.addHandler(file_handler)
+
+    # Console handler for interactive runs
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    log.addHandler(console_handler)
 else:
-    # If no log file, ensure logs still go to stderr (default for basicConfig without handlers)
-    handlers.append(logging.StreamHandler(sys.stderr))
+    # If no log file, ensure logs still go to stderr
+    error_handler = logging.StreamHandler(sys.stderr)
+    error_handler.setFormatter(formatter)
+    log.addHandler(error_handler)
 
-
-logging.basicConfig(
-    handlers=handlers,
-    level=chosen_log_level,
-    format="%(asctime)s %(process)d - %(levelname)s - %(message)s",
-)
-log = logging.getLogger()
 
 # === Suppress Paramiko's INFO level logs ===
 # Note: Paramiko's own logger level needs to be managed separately if you want its debug messages.
