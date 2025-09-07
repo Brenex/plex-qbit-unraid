@@ -109,7 +109,7 @@ if log.hasHandlers():
 # 5. Create and configure handlers based on arguments.
 if not args.no_log_file:
     # Rotating file handler that respects maxBytes
-    file_handler = RotatingFileHandler(LOG_FILE, maxBytes=25000, backupCount=0)
+    file_handler = RotatingFileHandler(LOG_FILE, maxBytes=25000, backupCount=1)
     file_handler.setFormatter(formatter)
     log.addHandler(file_handler)
 
