@@ -560,9 +560,8 @@ def getQbitSpeedLimitMode(qbitHost: str, qbitUser: str, qbitPass: str) -> int | 
         log.debug(f"qBittorrent API returned raw speedLimitsMode: {current_mode}")
         return int(current_mode)  # Ensure it's an int
     except APIConnectionError as e:
-        log.error(
-            f"qBittorrent connection failed during speed limit mode check: {e}. Check IP/Port and credentials."
-        )
+        log.error(f"qBittorrent connection failed during speed limit mode check: {repr(e)}")
+        log.error(f"Traceback: {traceback.format_exc()}")
         return None
     except Exception as e:
         log.error(
